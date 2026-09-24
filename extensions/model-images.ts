@@ -274,17 +274,7 @@ function makeCompletionsImageFetch(baseFetch: typeof globalThis.fetch): typeof g
 
 function stripImageMarkdownFromPayload(payload: unknown): unknown {
 	if (payload == null || typeof payload !== "object") return payload;
-	const body = payload as Record<string, any> & { input?: Array<Record<string, any>>; messages?: Array<Record<string, any>> };
-	// Inject the built-in image_generation tool for responses requests when the
-	// caller didn't declare it — many OpenAI-compatible gateways do not expose
-	// the tool by default, even though the upstream supports it.
-	if (Array.isArray(body.tools)) {
-		if (!body.tools.some((t: any) => t?.type === "image_generation")) {
-			body.tools.push({ type: "image_generation" });
-		}
-	} else if (body.tools === undefined) {
-		body.tools = [{ type: "image_generation" }];
-	}
+	const body = payload as { input?: Array<Record<string, any>>; messages?: Array<Record<string, any>> };
 	const containers = [...(Array.isArray(body.input) ? body.input : []), ...(Array.isArray(body.messages) ? body.messages : [])];
 	for (const item of containers) {
 		if (item?.type === "message" && item.role === "assistant" && Array.isArray(item.content)) {
