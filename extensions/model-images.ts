@@ -302,8 +302,25 @@ function stripImageMarkdownFromPayload(payload: unknown): unknown {
 // (api.openai.com, OpenAI-compatible gateways) only expose image generation
 // to requests that declare the tool; the codex backend injects it implicitly.
 // The agent client declares its own capabilities — the gateway stays a dumb pipe.
-function injectImageToolIntoPayload(payload: unknown): unknown {
+// The tool type is OpenAI-specific, so injection is gated on the model id:
+// only models matching IMAGE_TOOL_MODEL_PATTERNS (default "gpt-*", override
+// via PI_IMAGE_TOOL_MODELS, comma-separated globs) get the tool declared.
+function imageToolModelPatterns(): string[] {
+	const raw = process.env.PI_IMAGE_TOOL_MODELS ?? "gpt-*";
+	return raw.split(",").map((p) => p.trim().toLowerCase()).filter(Boolean);
+}
+
+function modelMatchesAnyPattern(modelId: string, patterns: string[]): boolean {
+	const lowered = modelId.trim().toLowerCase();
+	return patterns.some((pattern) => {
+		const prefix = pattern.slice(0, pattern.indexOf("*"));
+		return prefix === "" || lowered.startsWith(prefix);
+	});
+}
+
+function injectImageToolIntoPayload(payload: unknown, modelId: string): unknown {
 	if (payload == null || typeof payload !== "object") return payload;
+	if (!modelMatchesAnyPattern(modelId, imageToolModelPatterns())) return payload;
 	const body = payload as Record<string, any>;
 	if (!Array.isArray(body.input)) return payload; // responses body shape only
 	if (Array.isArray(body.tools)) {
@@ -425,9 +442,9 @@ export default function modelImagesExtension(pi: ExtensionAPI) {
 		const imageFetch = isResponses ? makeResponsesImageFetch(globalThis.fetch) : makeCompletionsImageFetch(globalThis.fetch);
 		const innerApi = isResponses ? openAIResponsesApi() : openAICompletionsApi();
 		const onPayload = isResponses
-			? (payload: unknown) => {
+			? (payload: unknown, model?: { id?: string }) => {
 					stripImageMarkdownFromPayload(payload);
-					return injectImageToolIntoPayload(payload);
+					return injectImageToolIntoPayload(payload, model?.id ?? "");
 			}
 			: (payload: unknown) => stripImageMarkdownFromPayload(payload);
 

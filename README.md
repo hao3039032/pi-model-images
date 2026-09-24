@@ -6,7 +6,8 @@ Transparent image-generation support for [pi](https://github.com/earendil-works/
 
 Models that generate images (Codex/GPT image tools, OpenRouter-style `delta.images`, data-URI emitters) ship image bytes in protocol fields that pi's stock parsers drop — you never see the picture. This extension fixes the whole pipeline **without adding providers or switching models**:
 
-1. **Same-name provider takeover** — every `models.json` provider speaking `openai-responses` or `openai-completions` is re-registered with an identical model list plus an image-aware stream wrapper:
+1. **Tool declaration** — for `openai-responses` providers, the built-in `image_generation` tool is declared on requests when absent (API-key deployments only expose image generation to requests that declare it). Injection is gated on model id: only models matching `gpt-*` (override via `PI_IMAGE_TOOL_MODELS`, comma-separated prefix globs) get the tool — the tool type is OpenAI-specific and would be rejected elsewhere.
+2. **Same-name provider takeover** — every `models.json` provider speaking `openai-responses` or `openai-completions` is re-registered with an identical model list plus an image-aware stream wrapper:
    - responses: `image_generation_call` output items → message items carrying markdown
    - completions: `choices[].delta.images` (OpenRouter convention) → `delta.content` markdown
    - anthropic-messages providers are left untouched (no protocol image field)
