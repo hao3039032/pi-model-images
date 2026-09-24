@@ -297,6 +297,25 @@ function stripImageMarkdownFromPayload(payload: unknown): unknown {
 	return payload;
 }
 
+// Outgoing payload hook for responses providers: declare the built-in
+// image_generation tool when the client did not. API-key deployments
+// (api.openai.com, OpenAI-compatible gateways) only expose image generation
+// to requests that declare the tool; the codex backend injects it implicitly.
+// The agent client declares its own capabilities — the gateway stays a dumb pipe.
+function injectImageToolIntoPayload(payload: unknown): unknown {
+	if (payload == null || typeof payload !== "object") return payload;
+	const body = payload as Record<string, any>;
+	if (!Array.isArray(body.input)) return payload; // responses body shape only
+	if (Array.isArray(body.tools)) {
+		if (!body.tools.some((t: any) => t?.type === "image_generation")) {
+			body.tools.push({ type: "image_generation" });
+		}
+	} else if (body.tools === undefined) {
+		body.tools = [{ type: "image_generation" }];
+	}
+	return payload;
+}
+
 // =============================================================================
 // Extension entry
 // =============================================================================
@@ -405,6 +424,12 @@ export default function modelImagesExtension(pi: ExtensionAPI) {
 		const isResponses = cfg.api === "openai-responses";
 		const imageFetch = isResponses ? makeResponsesImageFetch(globalThis.fetch) : makeCompletionsImageFetch(globalThis.fetch);
 		const innerApi = isResponses ? openAIResponsesApi() : openAICompletionsApi();
+		const onPayload = isResponses
+			? (payload: unknown) => {
+					stripImageMarkdownFromPayload(payload);
+					return injectImageToolIntoPayload(payload);
+			}
+			: (payload: unknown) => stripImageMarkdownFromPayload(payload);
 
 		const streamSimple = (
 			model: Model<any>,
@@ -417,7 +442,7 @@ export default function modelImagesExtension(pi: ExtensionAPI) {
 					...options,
 					apiKey: cfg.apiKey,
 					fetch: imageFetch,
-					onPayload: (payload: unknown) => stripImageMarkdownFromPayload(payload),
+					onPayload,
 				});
 				for await (const event of inner) out.push(event);
 				out.end();
