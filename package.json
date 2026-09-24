@@ -1,0 +1,15 @@
+{
+  "name": "pi-model-images",
+  "version": "0.1.0",
+  "description": "Transparent image-generation support for pi: same-name provider wrapping (responses/completions protocols), generic data-URI catching, and inline kitty/iterm2 image display.",
+  "keywords": ["pi-package"],
+  "license": "MIT",
+  "pi": {
+    "extensions": ["./extensions/model-images.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  }
+}
