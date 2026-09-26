@@ -1,7 +1,7 @@
 {
   "name": "pi-model-images",
   "version": "0.1.0",
-  "description": "Transparent image-generation support for pi: same-name provider wrapping (responses/completions protocols), generic data-URI catching, and inline kitty/iterm2 image display.",
+  "description": "Image-generation support for pi: a codex-style imagegen tool that calls the OpenAI Images API directly (works with any provider), plus transparent stream wrapping (responses/completions protocols), generic data-URI catching, and inline kitty/iterm2 image display.",
   "keywords": ["pi-package"],
   "license": "MIT",
   "pi": {
@@ -10,6 +10,7 @@
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*"
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
   }
 }
