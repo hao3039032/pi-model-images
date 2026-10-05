@@ -13,6 +13,8 @@ Use this CLI whenever the user asks to create or edit an image (drawing, diagram
 
 ## Invocation
 
+One invocation submits exactly one generation request (one prompt + one option set). Never batch multiple prompts into one call — run the CLI once per prompt, or orchestrate repeated calls (e.g. codemode). A single generation may take several reference images and may return several output images.
+
 Resolve the script path against this skill's directory (the parent of this `SKILL.md`), then run it with node:
 
 ```bash
@@ -45,6 +47,7 @@ node <skill-dir>/scripts/imagegen.mjs --prompt "remove the background clutter" -
 | `--transparent` | Transparent background (default opaque). Use only for transparency/cutout/background-removal requests; for edits preserve existing transparency unless asked. |
 | `--image <path>` | Repeatable, up to 5. Local image paths to edit. |
 | `--last-images <N>` | 1-5. Use the last N images from the current pi session (works inside pi's shell via `PI_SESSION_FILE`). |
+| `--n <count>` | Request multiple images from this one generation (1-10, default 1). Every returned image is saved and marked. |
 | `--model/--size/--quality` | One-off overrides; defaults come from config. |
 | `-o, --output <path>` | Additionally copy the result to this path (file for a single image; directory for multiple, created if missing). The canonical copy stays in `~/.pi/images` so display and `--last-images` keep working. Use it when the user wants the image at a specific path. |
 | `--timeout <sec>` | Request timeout (default 300). |

@@ -7,12 +7,16 @@
  * 1. imagegen CLI + skill (replaces the former registered `imagegen` tool) —
  *    a zero-dependency Node CLI bundled in the pi-model-images skill
  *    (skills/imagegen/scripts/imagegen.mjs) that calls the OpenAI Images API
- *    directly, invoked by the model through the ordinary shell tool. This
- *    extension watches every tool result for the CLI's `PI_IMAGEGEN_FILE
- *    <path>` marker lines and injects the referenced images back into the
- *    result as image blocks: inline terminal display, model iteration, and
- *    session persistence — the same experience the tool provided, without
- *    occupying a slot in the tool list. Config lives in
+ *    directly — one generation request per invocation (no batch arrays;
+ *    orchestrate repeated calls for that, e.g. via codemode), with optional
+ *    multi-reference editing and multi-image output. Invoked by the model
+ *    through the ordinary shell tool, this extension watches every tool
+ *    result for the CLI's `PI_IMAGEGEN_FILE <path>` marker lines and injects
+ *    the referenced images back into the result as image blocks: inline
+ *    terminal display, model iteration, and session persistence — the same
+ *    experience the tool provided, without occupying a slot in the tool
+ *    list. Markers in nested results (codemode-orchestrated calls) are shown
+ *    through the model-image display message instead. Config lives in
  *    ~/.pi/agent/pi-model-images.json (see the skill's SKILL.md).
  *
  * 2. Same-name takeover — every models.json provider speaking
@@ -89,6 +93,12 @@ interface SavedImage {
 /** Filled by the factory; decouples SSE rewrite paths from the ExtensionAPI. */
 let notifyImage: ((details: ImageDetails) => void) | undefined;
 
+/**
+ * Content hashes already displayed or injected in this process; dedupes the
+ * stream-capture, nested-call (codemode), and tool-result injection paths.
+ */
+const notifiedHashes = new Set<string>();
+
 // =============================================================================
 // Image persistence
 // =============================================================================
@@ -142,6 +152,13 @@ function saveDataUrl(url: string): SavedImage | null {
  * Validation is strict: paths must resolve under IMG_DIR, exist, and map to a
  * known image extension; at most MAX_INJECT_IMAGES per result. The catcher is
  * a display/injection enhancement only — it never fails a tool result.
+ *
+ * Nested calls (e.g. bash inside a codemode script) carry parentToolCallId:
+ * their results never render in the transcript and only reach the calling
+ * tool as a string, so content injection would be silently dropped. Those
+ * images are instead displayed through the model-image custom message. A
+ * shared content-hash set prevents double display when the calling tool's
+ * own result later echoes the same marker lines.
  */
 
 const MIME_BY_EXT: Record<string, string> = {
@@ -167,22 +184,43 @@ function registerImagegenMarkerCatcher(pi: ExtensionAPI) {
 			if (!text.includes("PI_IMAGEGEN_FILE")) return; // fast path
 
 			const seen = new Set<string>();
-			const images: Array<{ type: "image"; data: string; mimeType: string }> = [];
+			const found: ImageDetails[] = [];
 			for (const match of text.matchAll(IMAGEGEN_MARKER_LINE)) {
-				if (images.length >= MAX_INJECT_IMAGES) break;
+				if (found.length >= MAX_INJECT_IMAGES) break;
 				const filePath = path.resolve(match[1]);
 				if (seen.has(filePath)) continue;
 				seen.add(filePath);
 				if (!filePath.startsWith(IMG_DIR + path.sep)) continue; // only package-saved images
 				const mimeType = mimeFromFilePath(filePath);
 				if (!mimeType || !fs.existsSync(filePath)) continue;
-				images.push({ type: "image", data: fs.readFileSync(filePath).toString("base64"), mimeType });
+				found.push({ data: fs.readFileSync(filePath).toString("base64"), mimeType, filePath });
 			}
+			if (found.length === 0) return;
+
+			if (event.parentToolCallId) {
+				// Nested result (codemode-orchestrated call): display via the
+				// model-image custom message; notifyImage dedupes by content hash.
+				for (const details of found) notifyImage?.(details);
+				return;
+			}
+
+			// Top-level result: inject image blocks (inline display + model
+			// iteration + session persistence). Skip images already displayed via
+				// the nested path so an echoing caller result neither double-renders
+			// nor duplicates image content.
+			const images = found
+				.filter((details) => {
+					const hash = crypto.createHash("sha1").update(details.data).digest("hex").slice(0, 16);
+					if (notifiedHashes.has(hash)) return false;
+					notifiedHashes.add(hash);
+					return true;
+			})
+				.map((details) => ({ type: "image" as const, data: details.data, mimeType: details.mimeType }));
 			if (images.length === 0) return;
 			return { content: [...blocks, ...images] };
 		} catch (err) {
 			console.error(
-				`model-images: imagegen marker capture failed — ${err instanceof Error ? err.message : String(err)}`,
+					`model-images: imagegen marker capture failed — ${err instanceof Error ? err.message : String(err)}`,
 			);
 		}
 	});
@@ -420,11 +458,10 @@ export default function modelImagesExtension(pi: ExtensionAPI) {
 		return new Image(details.data, details.mimeType, { fallbackColor: (s) => theme.fg("toolOutput", s) }) as unknown as Component;
 	});
 
-	const notifiedHashes = new Set<string>();
 	notifyImage = (details) => {
 		try {
 			const hash = crypto.createHash("sha1").update(details.data).digest("hex").slice(0, 16);
-			if (notifiedHashes.has(hash)) return; // dedupe across completed+done
+			if (notifiedHashes.has(hash)) return; // dedupe across completed+done and marker paths
 			notifiedHashes.add(hash);
 			pi.sendMessage(
 				{ customType: "model-image", content: `[image generated: ${details.filePath}]`, display: true, details },

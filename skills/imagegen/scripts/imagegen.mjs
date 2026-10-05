@@ -36,6 +36,7 @@ const CONFIG_FILENAME = "pi-model-images.json";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_MODEL = "gpt-image-2";
 const MAX_EDIT_IMAGES = 5;
+const MAX_OUTPUT_IMAGES = 10;
 const DEFAULT_TIMEOUT_SEC = 300;
 let TIMEOUT_SEC = DEFAULT_TIMEOUT_SEC;
 
@@ -311,8 +312,14 @@ async function extractImageDatum(item, fallbackMime, signal) {
 
 const USAGE = `imagegen — generate or edit images via the OpenAI Images API
 
+One invocation submits exactly ONE generation request (one prompt + one
+option set). Arrays of generation specs are intentionally not supported —
+run the CLI once per prompt, or orchestrate repeated calls (e.g. codemode).
+A single generation may take several reference images and may return
+several output images.
+
 Usage:
-  imagegen.mjs --prompt "<text>" [options]                 # generate a new image
+  imagegen.mjs --prompt "<text>" [options]                 # generate new image(s)
   imagegen.mjs --prompt "<text>" --image <p> [--image <p>] # edit local images (max 5)
   imagegen.mjs --prompt "<text>" --last-images <N>         # edit the last N conversation images
 
@@ -325,6 +332,8 @@ Options:
   --image <path>         Local image path to edit; repeat up to 5 times.
   --last-images <N>      Use the last N images from the current pi session
                          (1-5); requires PI_SESSION_FILE (set inside pi's shell).
+  --n <count>            Request multiple images from this one generation
+                         (1-10, default 1). Every returned image is saved.
   --model <id>           One-off model override (default from config).
   --size <WxH|auto>      One-off size override.
   --quality <lvl>        One-off quality override (low|medium|high|auto).
@@ -340,7 +349,7 @@ Config: ~/.pi/agent/${CONFIG_FILENAME} (baseUrl / apiKey / model / size /
 quality) with PI_IMAGEGEN_* env overrides; apiKey falls back to OPENAI_API_KEY.
 
 Output: a summary line, then one "PI_IMAGEGEN_FILE <path>" marker line per
-generated image (the pi-model-images extension injects those images back into
+returned image (the pi-model-images extension injects those images back into
 the conversation automatically).`;
 
 function parseArgs(argv) {
@@ -371,6 +380,15 @@ function parseArgs(argv) {
 			case "--image":
 				opts.images.push(next(arg));
 				break;
+			case "--n": {
+				const raw = next(arg);
+				const n = Number(raw);
+				if (!Number.isInteger(n) || n < 1 || n > MAX_OUTPUT_IMAGES) {
+					fail(`--n must be an integer between 1 and ${MAX_OUTPUT_IMAGES}`);
+				}
+				opts.n = n;
+				break;
+			}
 			case "--last-images": {
 				const raw = next(arg);
 				const n = Number(raw);
@@ -438,6 +456,9 @@ async function main() {
 		model: cfg.model,
 		quality: cfg.quality,
 		size: cfg.size,
+		// Only sent when explicitly requested so the default request shape stays
+		// identical to the former tool / codex.
+		...(opts.n != null ? { n: opts.n } : {}),
 	};
 
 	let endpoint = "/images/generations";
