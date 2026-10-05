@@ -72,10 +72,14 @@ const BARE_DATA_URI = /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]{512,}/g
 
 /**
  * Marker emitted by the imagegen CLI (skills/imagegen/scripts/imagegen.mjs)
- * at the end of its stdout: `PI_IMAGEGEN_FILE <abs-path>`, one per image.
+ * at the end of its stdout: `PI_IMAGEGEN_FILE <abs-path>`, one per image, each
+ * on its own line. Line-anchored and matched to end-of-line so paths that
+ * contain whitespace (e.g. `/home/John Doe/.pi/images/a.png`) survive; any
+ * trailing `\r` or padding is trimmed before use, and a marker that does not
+ * start a line (e.g. embedded in a `--help` echo) is ignored.
  * Keep the literal in sync with the CLI.
  */
-const IMAGEGEN_MARKER_LINE = /PI_IMAGEGEN_FILE (\S+)/g;
+const IMAGEGEN_MARKER_LINE = /^PI_IMAGEGEN_FILE (.+)$/gm;
 const MAX_INJECT_IMAGES = 10; // matches the CLI's --n ceiling so every image of one generation is injected
 
 interface ImageDetails {
@@ -187,7 +191,7 @@ function registerImagegenMarkerCatcher(pi: ExtensionAPI) {
 			const found: ImageDetails[] = [];
 			for (const match of text.matchAll(IMAGEGEN_MARKER_LINE)) {
 				if (found.length >= MAX_INJECT_IMAGES) break;
-				const filePath = path.resolve(match[1]);
+				const filePath = path.resolve(match[1].trim());
 				if (seen.has(filePath)) continue;
 				seen.add(filePath);
 				if (!filePath.startsWith(IMG_DIR + path.sep)) continue; // only package-saved images
@@ -217,7 +221,12 @@ function registerImagegenMarkerCatcher(pi: ExtensionAPI) {
 			})
 				.map((details) => ({ type: "image" as const, data: details.data, mimeType: details.mimeType }));
 			if (images.length === 0) return;
-			return { content: [...blocks, ...images] };
+			// Replacing `content` without returning `structuredContent` would drop it
+			// (pi's ToolResultEventResult contract) — pass it through untouched.
+			return {
+				content: [...blocks, ...images],
+				...(event.structuredContent !== undefined ? { structuredContent: event.structuredContent } : {}),
+			};
 		} catch (err) {
 			console.error(
 					`model-images: imagegen marker capture failed — ${err instanceof Error ? err.message : String(err)}`,

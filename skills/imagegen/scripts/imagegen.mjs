@@ -48,10 +48,23 @@ const MIME_BY_EXT = {
 	".gif": "image/gif",
 };
 const FILE_URI_IMAGE_GLOBAL = /!\[[^\]]*\]\(file:\/\/(\/[^)\s]+)\)/g;
+const MAX_REF_IMAGE_BYTES = 50 * 1024 * 1024; // OpenAI's per-image limit for GPT image model reference images
+
+/**
+ * Control-flow sentinel: unwinds to the top-level catch, which sets
+ * `process.exitCode`. Exiting synchronously instead would risk truncating
+ * piped stdout/stderr on some platforms.
+ */
+class CliExit extends Error {
+	constructor(code) {
+		super(`exit ${code}`);
+		this.exitCode = code;
+	}
+}
 
 function fail(message) {
 	console.error(`imagegen: ${message}`);
-	process.exit(1);
+	throw new CliExit(1);
 }
 
 // =============================================================================
@@ -59,7 +72,14 @@ function fail(message) {
 // =============================================================================
 
 function getAgentDir() {
-	return process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), ".pi", "agent");
+	const value = process.env.PI_CODING_AGENT_DIR;
+	if (!value) return path.join(os.homedir(), ".pi", "agent");
+	// Expand a leading `~` the way pi's host does.
+	if (value === "~") return os.homedir();
+	if (value.startsWith("~/") || (process.platform === "win32" && value.startsWith("~\\"))) {
+		return path.join(os.homedir(), value.slice(2));
+	}
+	return value;
 }
 
 function readSettings() {
@@ -138,6 +158,18 @@ function readImageDataUrl(rawPath, cwd) {
 	if (!mimeType) {
 		throw new Error(`unsupported image type for \`${filePath}\` (expected png/jpg/webp/gif)`);
 	}
+	let size;
+	try {
+		size = fs.statSync(filePath).size;
+	} catch (err) {
+		throw new Error(`unable to read referenced image \`${filePath}\` — ${err instanceof Error ? err.message : String(err)}`);
+	}
+	// Reject oversized references before reading them into memory.
+	if (size > MAX_REF_IMAGE_BYTES) {
+		throw new Error(
+			`referenced image \`${filePath}\` is ${formatBytes(size)}, over the ${formatBytes(MAX_REF_IMAGE_BYTES)} per-image API limit — use a smaller file`,
+		);
+	}
 	let bytes;
 	try {
 		bytes = fs.readFileSync(filePath);
@@ -145,6 +177,11 @@ function readImageDataUrl(rawPath, cwd) {
 		throw new Error(`unable to read referenced image \`${filePath}\` — ${err instanceof Error ? err.message : String(err)}`);
 	}
 	return `data:${mimeType};base64,${bytes.toString("base64")}`;
+}
+
+function formatBytes(bytes) {
+	const mib = bytes / (1024 * 1024);
+	return `${Number.isInteger(mib) ? mib : mib.toFixed(1)}MB`;
 }
 
 // =============================================================================
@@ -340,7 +377,8 @@ Options:
   --quality <lvl>        One-off quality override (low|medium|high|auto).
   -o, --output <path>    Additionally copy the result(s) to this path: a file
                          path for a single image, or a directory (created if
-                         missing) when multiple images come back. The canonical
+                         missing) when multiple images come back. Overwrites
+                         an existing file at the target path. The canonical
                          copy always stays in ~/.pi/images so inline display and
                          --last-images keep working.
   --timeout <seconds>    Request timeout (default ${DEFAULT_TIMEOUT_SEC}).
@@ -422,8 +460,7 @@ function parseArgs(argv) {
 			case "--help":
 			case "-h":
 				console.log(USAGE);
-				process.exit(0);
-				break;
+				throw new CliExit(0);
 			default:
 				fail(`unknown argument \`${arg}\` (see --help)`);
 		}
@@ -498,18 +535,30 @@ async function main() {
 		console.log(`Saved to ${s.filePath}`);
 		if (s.outputPath) console.log(`Also saved to ${s.outputPath}`);
 	}
+	// A failed --output copy must not discard the markers of an already-
+	// successful generation — report it as a warning instead.
+	for (const message of copyWarnings) {
+		console.error(`imagegen: warning: ${message}`);
+		console.log(`Warning: ${message}`);
+	}
 	// Markers reference the canonical ~/.pi/images copies only — the extension
 	// catcher whitelists that directory, and mixing in --output paths would
 	// inject the same image twice.
 	for (const s of saved) console.log(`${MARKER} ${s.filePath}`);
 }
 
+/** Copy problems collected by copyToOutput; printed as warnings before the marker lines. */
+const copyWarnings = [];
+
 /**
  * Copies saved images to the user-requested --output path. Single image: the
  * path may be a file (created, parents auto-created) or an existing/trailing-
  * slash directory. Multiple images: the path must be a directory (created if
- * missing); pointing at an existing file is an error. Existing files at the
- * targets are overwritten.
+ * missing); pointing at an existing file only warns. Existing files at the
+ * targets are overwritten. Copy problems never abort the run: the generation
+ * already succeeded and the canonical ~/.pi/images files exist, so they are
+ * collected into copyWarnings (stderr + stdout "Warning:" lines before the
+ * markers) instead of discarding the marker lines.
  */
 function copyToOutput(saved, rawOutput) {
 	const outPath = path.resolve(rawOutput.trim());
@@ -528,7 +577,8 @@ function copyToOutput(saved, rawOutput) {
 			fs.mkdirSync(path.dirname(target), { recursive: true });
 			fs.copyFileSync(saved[0].filePath, target);
 		} catch (err) {
-			fail(`--output copy to \`${target}\` failed — ${err instanceof Error ? err.message : String(err)}`);
+			copyWarnings.push(`--output copy to \`${target}\` failed — ${err instanceof Error ? err.message : String(err)}`);
+			return;
 		}
 		saved[0].outputPath = target;
 		return;
@@ -540,7 +590,8 @@ function copyToOutput(saved, rawOutput) {
 		// not there yet
 	}
 	if (isFile) {
-		fail("--output points to an existing file but the request produced multiple images; pass a directory instead");
+		copyWarnings.push("--output points to an existing file but the request produced multiple images; pass a directory instead");
+		return;
 	}
 	try {
 		fs.mkdirSync(outPath, { recursive: true });
@@ -550,10 +601,16 @@ function copyToOutput(saved, rawOutput) {
 			s.outputPath = target;
 		}
 	} catch (err) {
-		fail(`--output copy to \`${outPath}\` failed — ${err instanceof Error ? err.message : String(err)}`);
+		copyWarnings.push(`--output copy to \`${outPath}\` failed — ${err instanceof Error ? err.message : String(err)}`);
 	}
 }
 
 main().catch((err) => {
-	fail(err instanceof Error ? err.message : String(err));
+	if (err instanceof CliExit) {
+		// fail()/--help already printed; just carry the exit code.
+		process.exitCode = err.exitCode;
+		return;
+	}
+	console.error(`imagegen: ${err instanceof Error ? err.message : String(err)}`);
+	process.exitCode = 1;
 });

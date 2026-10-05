@@ -45,11 +45,11 @@ node <skill-dir>/scripts/imagegen.mjs --prompt "remove the background clutter" -
 |---|---|
 | `--prompt <text>` | Required. Description of the desired image, or the edit instructions. |
 | `--transparent` | Transparent background (default opaque). Use only for transparency/cutout/background-removal requests; for edits preserve existing transparency unless asked. |
-| `--image <path>` | Repeatable, up to 16 (OpenAI gpt-image API limit; each png/webp/jpg under 50MB). |
+| `--image <path>` | Repeatable, up to 16 (OpenAI gpt-image API limit; each png/webp/jpg must be under 50MB — the CLI rejects larger files). |
 | `--last-images <N>` | 1-16. Use the last N images from the current pi session (works inside pi's shell via `PI_SESSION_FILE`). |
 | `--n <count>` | Request multiple images from this one generation (1-10, default 1). Every returned image is saved and marked. |
 | `--model/--size/--quality` | One-off overrides; defaults come from config. |
-| `-o, --output <path>` | Additionally copy the result to this path (file for a single image; directory for multiple, created if missing). The canonical copy stays in `~/.pi/images` so display and `--last-images` keep working. Use it when the user wants the image at a specific path. |
+| `-o, --output <path>` | Additionally copy the result to this path (file for a single image; directory for multiple, created if missing). Overwrites an existing file at the target path. The canonical copy stays in `~/.pi/images` so display and `--last-images` keep working. Use it when the user wants the image at a specific path. |
 | `--timeout <sec>` | Request timeout (default 300). |
 
 Never provide both `--image` and `--last-images`. If neither mechanism can include every target image, ask the user to attach the missing images again, then generate directly without reconfirmation.
@@ -64,3 +64,4 @@ Read from `~/.pi/agent/pi-model-images.json` (`baseUrl` / `apiKey` / `model` / `
 - On success stdout ends with one `PI_IMAGEGEN_FILE <path>` marker line per image. The pi-model-images extension automatically injects those images into the conversation (inline display) — **do not re-render the image in your response as Markdown or a file link**; mentioning the plain path is fine. If that extension is not active, embed `![image](file://<path>)` instead.
 - If you need a generated image at another path, use `--output <path>` (or copy it) and leave the canonical copy in `~/.pi/images` in place unless the user explicitly asks you to delete it.
 - On failure the CLI exits non-zero with an `imagegen: ...` message on stderr; report it to the user.
+- A failed `--output` copy is not a generation failure: the CLI still exits 0 and prints the markers, preceded by `Warning: ...` lines. Tell the user the copy failed (the image is still in `~/.pi/images`).
