@@ -76,7 +76,7 @@ const BARE_DATA_URI = /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]{512,}/g
  * Keep the literal in sync with the CLI.
  */
 const IMAGEGEN_MARKER_LINE = /PI_IMAGEGEN_FILE (\S+)/g;
-const MAX_INJECT_IMAGES = 5;
+const MAX_INJECT_IMAGES = 10; // matches the CLI's --n ceiling so every image of one generation is injected
 
 interface ImageDetails {
 	data: string;

@@ -9,8 +9,8 @@ Models that generate images natively (responses `image_generation_call`, OpenRou
 1. **imagegen CLI + skill (v0.2, replaces the former registered `imagegen` tool)** — a zero-dependency Node CLI (`skills/imagegen/scripts/imagegen.mjs`) that calls the OpenAI Images API directly (`POST {base}/images/generations` for new images, `POST {base}/images/edits` for edits). It is distributed as a pi skill: the model sees only a one-line skill description in its system prompt (loaded on demand), and invokes the CLI through the ordinary bash tool — keeping the tool list lean. Works with **any** model and provider — `openai-responses`, `openai-completions`, even `anthropic-messages` — because it never depends on the chat protocol. Supports:
    - text-to-image generation (`--prompt`)
    - transparent backgrounds (`--transparent`)
-   - editing local images (`--image`, repeatable, up to 5)
-   - editing recent conversation images with no local path (`--last-images N`, up to 5 — reads the current session via `PI_SESSION_FILE`)
+   - editing local images (`--image`, repeatable, up to 16 — the OpenAI API limit for gpt-image models)
+   - editing recent conversation images with no local path (`--last-images N`, up to 16 — reads the current session via `PI_SESSION_FILE`)
    - requesting several images from one generation (`--n`, 1-10; every returned image is saved and marked)
    - copying the result to a user-requested path (`--output`/`-o`; the canonical content-addressed copy stays in `~/.pi/images/`)
    - one-off `--model/--size/--quality` overrides and `--timeout`

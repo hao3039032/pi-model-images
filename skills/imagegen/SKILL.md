@@ -27,13 +27,13 @@ Generate a brand-new image (omit `--image`/`--last-images` entirely):
 node <skill-dir>/scripts/imagegen.mjs --prompt "..." [--transparent]
 ```
 
-Edit local images — pass up to 5 paths when every target image has a local path:
+Edit local images — pass up to 16 paths (the OpenAI API limit for gpt-image models) when every target image has a local path:
 
 ```bash
 node <skill-dir>/scripts/imagegen.mjs --prompt "make the sky sunset-colored" --image /abs/path/a.png --image /abs/path/b.png
 ```
 
-Edit recent conversation images — only when a target image has no local file path. `N` is the smallest number of recent images (1-5) covering every target; relative paths resolve against the current working directory:
+Edit recent conversation images — only when a target image has no local file path. `N` is the smallest number of recent images (1-16) covering every target; relative paths resolve against the current working directory:
 
 ```bash
 node <skill-dir>/scripts/imagegen.mjs --prompt "remove the background clutter" --last-images 1
@@ -45,8 +45,8 @@ node <skill-dir>/scripts/imagegen.mjs --prompt "remove the background clutter" -
 |---|---|
 | `--prompt <text>` | Required. Description of the desired image, or the edit instructions. |
 | `--transparent` | Transparent background (default opaque). Use only for transparency/cutout/background-removal requests; for edits preserve existing transparency unless asked. |
-| `--image <path>` | Repeatable, up to 5. Local image paths to edit. |
-| `--last-images <N>` | 1-5. Use the last N images from the current pi session (works inside pi's shell via `PI_SESSION_FILE`). |
+| `--image <path>` | Repeatable, up to 16 (OpenAI gpt-image API limit; each png/webp/jpg under 50MB). |
+| `--last-images <N>` | 1-16. Use the last N images from the current pi session (works inside pi's shell via `PI_SESSION_FILE`). |
 | `--n <count>` | Request multiple images from this one generation (1-10, default 1). Every returned image is saved and marked. |
 | `--model/--size/--quality` | One-off overrides; defaults come from config. |
 | `-o, --output <path>` | Additionally copy the result to this path (file for a single image; directory for multiple, created if missing). The canonical copy stays in `~/.pi/images` so display and `--last-images` keep working. Use it when the user wants the image at a specific path. |

@@ -35,7 +35,7 @@ const IMG_DIR = path.join(os.homedir(), ".pi", "images");
 const CONFIG_FILENAME = "pi-model-images.json";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_MODEL = "gpt-image-2";
-const MAX_EDIT_IMAGES = 5;
+const MAX_EDIT_IMAGES = 16; // OpenAI GPT image models accept up to 16 reference images per edit
 const MAX_OUTPUT_IMAGES = 10;
 const DEFAULT_TIMEOUT_SEC = 300;
 let TIMEOUT_SEC = DEFAULT_TIMEOUT_SEC;
@@ -320,7 +320,7 @@ several output images.
 
 Usage:
   imagegen.mjs --prompt "<text>" [options]                 # generate new image(s)
-  imagegen.mjs --prompt "<text>" --image <p> [--image <p>] # edit local images (max 5)
+  imagegen.mjs --prompt "<text>" --image <p> [--image <p>] # edit local images (up to 16)
   imagegen.mjs --prompt "<text>" --last-images <N>         # edit the last N conversation images
 
   --flag=value spelling is accepted for every value flag.
@@ -329,9 +329,10 @@ Options:
   --prompt <text>        Text description of the desired image, or the edit
                          instructions to apply. Required.
   --transparent          Request a transparent background (default opaque).
-  --image <path>         Local image path to edit; repeat up to 5 times.
+  --image <path>         Local image path to edit; repeat up to 16 times
+                         (the API limit for gpt-image models).
   --last-images <N>      Use the last N images from the current pi session
-                         (1-5); requires PI_SESSION_FILE (set inside pi's shell).
+                         (1-16); requires PI_SESSION_FILE (set inside pi's shell).
   --n <count>            Request multiple images from this one generation
                          (1-10, default 1). Every returned image is saved.
   --model <id>           One-off model override (default from config).
