@@ -328,6 +328,11 @@ Options:
   --model <id>           One-off model override (default from config).
   --size <WxH|auto>      One-off size override.
   --quality <lvl>        One-off quality override (low|medium|high|auto).
+  -o, --output <path>    Additionally copy the result(s) to this path: a file
+                         path for a single image, or a directory (created if
+                         missing) when multiple images come back. The canonical
+                         copy always stays in ~/.pi/images so inline display and
+                         --last-images keep working.
   --timeout <seconds>    Request timeout (default ${DEFAULT_TIMEOUT_SEC}).
   -h, --help             Show this help.
 
@@ -380,6 +385,10 @@ function parseArgs(argv) {
 				break;
 			case "--size":
 				opts.overrides.size = next(arg);
+				break;
+			case "--output":
+			case "-o":
+				opts.output = next(arg);
 				break;
 			case "--quality":
 				opts.overrides.quality = next(arg);
@@ -455,12 +464,72 @@ async function main() {
 	const saved = [];
 	for (const item of json.data) {
 		const { data, mimeType } = await extractImageDatum(item, fallbackMime, signal);
-		saved.push({ filePath: saveBase64(data, mimeType) });
+		saved.push({ filePath: saveBase64(data, mimeType), outputPath: undefined });
+	}
+
+	if (typeof opts.output === "string" && opts.output.trim()) {
+		copyToOutput(saved, opts.output);
 	}
 
 	console.log(`imagegen: generated ${saved.length} image${saved.length > 1 ? "s" : ""} (model ${cfg.model})`);
-	for (const s of saved) console.log(`Saved to ${s.filePath}`);
+	for (const s of saved) {
+		console.log(`Saved to ${s.filePath}`);
+		if (s.outputPath) console.log(`Also saved to ${s.outputPath}`);
+	}
+	// Markers reference the canonical ~/.pi/images copies only — the extension
+	// catcher whitelists that directory, and mixing in --output paths would
+	// inject the same image twice.
 	for (const s of saved) console.log(`${MARKER} ${s.filePath}`);
+}
+
+/**
+ * Copies saved images to the user-requested --output path. Single image: the
+ * path may be a file (created, parents auto-created) or an existing/trailing-
+ * slash directory. Multiple images: the path must be a directory (created if
+ * missing); pointing at an existing file is an error. Existing files at the
+ * targets are overwritten.
+ */
+function copyToOutput(saved, rawOutput) {
+	const outPath = path.resolve(rawOutput.trim());
+	const base = path.basename(saved[0].filePath);
+	if (saved.length === 1) {
+		let target = outPath;
+		let isDir = false;
+		try {
+			isDir = fs.statSync(outPath).isDirectory();
+		} catch {
+			// not there yet — that's fine, we may create it
+		}
+		const wantsDir = isDir || /[\\/]$/.test(rawOutput.trim());
+		if (wantsDir) target = path.join(outPath, base);
+		try {
+			fs.mkdirSync(path.dirname(target), { recursive: true });
+			fs.copyFileSync(saved[0].filePath, target);
+		} catch (err) {
+			fail(`--output copy to \`${target}\` failed — ${err instanceof Error ? err.message : String(err)}`);
+		}
+		saved[0].outputPath = target;
+		return;
+	}
+	let isFile = false;
+	try {
+		isFile = fs.statSync(outPath).isFile();
+	} catch {
+		// not there yet
+	}
+	if (isFile) {
+		fail("--output points to an existing file but the request produced multiple images; pass a directory instead");
+	}
+	try {
+		fs.mkdirSync(outPath, { recursive: true });
+		for (const s of saved) {
+			const target = path.join(outPath, path.basename(s.filePath));
+			fs.copyFileSync(s.filePath, target);
+			s.outputPath = target;
+		}
+	} catch (err) {
+		fail(`--output copy to \`${outPath}\` failed — ${err instanceof Error ? err.message : String(err)}`);
+	}
 }
 
 main().catch((err) => {

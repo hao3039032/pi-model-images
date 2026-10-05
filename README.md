@@ -11,6 +11,7 @@ Models that generate images natively (responses `image_generation_call`, OpenRou
    - transparent backgrounds (`--transparent`)
    - editing local images (`--image`, repeatable, up to 5)
    - editing recent conversation images with no local path (`--last-images N`, up to 5 — reads the current session via `PI_SESSION_FILE`)
+   - copying the result to a user-requested path (`--output`/`-o`; the canonical content-addressed copy stays in `~/.pi/images/`)
    - one-off `--model/--size/--quality` overrides and `--timeout`
 
    On success the CLI prints one `PI_IMAGEGEN_FILE <path>` marker line per image at the end of its stdout. This package's extension scans every tool result for those markers and **injects the referenced images back into the tool result as image blocks**: pi renders them inline (kitty/iterm2), the model can reason about and iteratively edit them, and they persist in the session — exactly what the former tool result provided.

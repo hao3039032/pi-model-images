@@ -46,6 +46,7 @@ node <skill-dir>/scripts/imagegen.mjs --prompt "remove the background clutter" -
 | `--image <path>` | Repeatable, up to 5. Local image paths to edit. |
 | `--last-images <N>` | 1-5. Use the last N images from the current pi session (works inside pi's shell via `PI_SESSION_FILE`). |
 | `--model/--size/--quality` | One-off overrides; defaults come from config. |
+| `-o, --output <path>` | Additionally copy the result to this path (file for a single image; directory for multiple, created if missing). The canonical copy stays in `~/.pi/images` so display and `--last-images` keep working. Use it when the user wants the image at a specific path. |
 | `--timeout <sec>` | Request timeout (default 300). |
 
 Never provide both `--image` and `--last-images`. If neither mechanism can include every target image, ask the user to attach the missing images again, then generate directly without reconfirmation.
@@ -58,5 +59,5 @@ Read from `~/.pi/agent/pi-model-images.json` (`baseUrl` / `apiKey` / `model` / `
 
 - Generation can take a few minutes — run it once with an adequate shell-tool timeout (e.g. 360 seconds) and wait; avoid duplicate parallel calls for the same image.
 - On success stdout ends with one `PI_IMAGEGEN_FILE <path>` marker line per image. The pi-model-images extension automatically injects those images into the conversation (inline display) — **do not re-render the image in your response as Markdown or a file link**; mentioning the plain path is fine. If that extension is not active, embed `![image](file://<path>)` instead.
-- If you need a generated image at another path, copy it and leave the original in place unless the user explicitly asks you to delete it.
+- If you need a generated image at another path, use `--output <path>` (or copy it) and leave the canonical copy in `~/.pi/images` in place unless the user explicitly asks you to delete it.
 - On failure the CLI exits non-zero with an `imagegen: ...` message on stderr; report it to the user.
