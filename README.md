@@ -29,6 +29,17 @@ Models that generate images natively (responses `image_generation_call`, OpenRou
 
 Images are saved to `~/.pi/images/` (content-addressed). Sessions render in both kitty/iterm2 terminals and [pi-agent-desktop](https://github.com/abcwyc/pi-agent-desktop) (whose web UI proxies `file://` markdown images through `/api/files`).
 
+### Desktop result presentation
+
+The CLI remains protocol-independent: it only saves images and prints `PI_IMAGEGEN_FILE` markers.
+When the extension appends images to a top-level tool result, it also merges
+`details.modelImages = { version: 1, outputs: [{ blockIndex, kind: "generated-image", filePath }] }`.
+`blockIndex` addresses the final result's original `content` array; only newly injected images
+are tagged. Existing tool details and `structuredContent` are preserved, and pixels are not
+duplicated in this metadata. Desktop clients can show these deliverables outside a collapsed
+execution trace without promoting ordinary `read` images or screenshots. Nested CLI calls keep
+the explicit `model-image` custom-message route. No CLI flags or TUI renderer changes are needed.
+
 ## Install
 
 ```bash

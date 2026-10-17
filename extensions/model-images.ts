@@ -64,6 +64,7 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import { appendGeneratedImages } from "./image-output.mjs";
 
 const IMG_DIR = path.join(os.homedir(), ".pi", "images");
 const IMG_MARKDOWN = /!\[image\]\(file:\/\/[^)]*\.pi\/images\/[^)]+\)/g;
@@ -218,15 +219,10 @@ function registerImagegenMarkerCatcher(pi: ExtensionAPI) {
 					if (notifiedHashes.has(hash)) return false;
 					notifiedHashes.add(hash);
 					return true;
-			})
-				.map((details) => ({ type: "image" as const, data: details.data, mimeType: details.mimeType }));
+				});
 			if (images.length === 0) return;
-			// Replacing `content` without returning `structuredContent` would drop it
-			// (pi's ToolResultEventResult contract) — pass it through untouched.
-			return {
-				content: [...blocks, ...images],
-				...(event.structuredContent !== undefined ? { structuredContent: event.structuredContent } : {}),
-			};
+			// Tag only the injected deliverables, never pre-existing read/screenshot images.
+			return appendGeneratedImages(event, images);
 		} catch (err) {
 			console.error(
 					`model-images: imagegen marker capture failed — ${err instanceof Error ? err.message : String(err)}`,
