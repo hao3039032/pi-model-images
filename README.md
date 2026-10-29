@@ -70,7 +70,7 @@ The CLI talks to the OpenAI Images API on its own, configured in its own dedicat
 
 Every field can be overridden per-invocation with environment variables: `PI_IMAGEGEN_API_KEY`, `PI_IMAGEGEN_BASE_URL`, `PI_IMAGEGEN_MODEL`, `PI_IMAGEGEN_SIZE`, `PI_IMAGEGEN_QUALITY` (env > config file > default; `apiKey` additionally falls back to `OPENAI_API_KEY`). The file is re-read on every CLI call, so edits apply immediately.
 
-Request shape follows codex: `{"prompt", "background": "opaque"|"transparent", "model", "quality", "size"}` against `/images/generations`, and the same plus `images: [{image_url: "data:..."}]` against `/images/edits`. Requires Node ≥ 18 (bundled with the skill; pi's runtime already satisfies this).
+Request shape follows codex: `{"prompt", "background": "opaque"|"transparent", "model", "quality", "size"}` as JSON against `/images/generations`. Edits (`/images/edits`) use the standard OpenAI multipart/form-data contract — scalar fields plus one `image[]` file part per reference image — instead of a JSON body, which gateways commonly re-encode (e.g. as `application/x-www-form-urlencoded`) on the upstream hop, where it gets rejected. Requires Node ≥ 18 (bundled with the skill; pi's runtime already satisfies this).
 
 ## The skill
 

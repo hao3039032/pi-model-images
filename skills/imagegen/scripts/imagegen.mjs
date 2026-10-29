@@ -152,7 +152,8 @@ function saveBase64(b64, mimeType) {
 	return filePath;
 }
 
-function readImageDataUrl(rawPath, cwd) {
+/** Reads a local reference image for the edits endpoint (raw bytes, not a data URL). */
+function readImageFile(rawPath, cwd) {
 	const filePath = path.resolve(cwd, rawPath.trim());
 	const mimeType = mimeFromFilePath(filePath);
 	if (!mimeType) {
@@ -170,13 +171,11 @@ function readImageDataUrl(rawPath, cwd) {
 			`referenced image \`${filePath}\` is ${formatBytes(size)}, over the ${formatBytes(MAX_REF_IMAGE_BYTES)} per-image API limit — use a smaller file`,
 		);
 	}
-	let bytes;
 	try {
-		bytes = fs.readFileSync(filePath);
+		return { bytes: fs.readFileSync(filePath), mimeType, filename: path.basename(filePath) };
 	} catch (err) {
 		throw new Error(`unable to read referenced image \`${filePath}\` — ${err instanceof Error ? err.message : String(err)}`);
 	}
-	return `data:${mimeType};base64,${bytes.toString("base64")}`;
 }
 
 function formatBytes(bytes) {
@@ -273,17 +272,43 @@ function collectRecentImages(count, sessionFile) {
 	return collected;
 }
 
+const MIME_TO_FILENAME_EXT = { "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" };
+
+/**
+ * Builds the multipart/form-data body for /images/edits — the content type the
+ * OpenAI Images edits endpoint (and every compatible gateway) requires. JSON
+ * edit bodies are non-standard: gateways that accept them at all frequently
+ * re-encode them (e.g. as application/x-www-form-urlencoded) on the upstream
+ * hop, which the upstream then rejects. `image[]` is the field name the OpenAI
+ * SDK uses for repeated file parameters.
+ */
+function editsForm(fields, images) {
+	const form = new FormData();
+	for (const [key, value] of Object.entries(fields)) form.append(key, String(value));
+	for (const img of images) {
+		const filename = img.filename ?? `image.${MIME_TO_FILENAME_EXT[img.mimeType] ?? "png"}`;
+		form.append("image[]", new Blob([img.bytes], { type: img.mimeType }), filename);
+	}
+	return form;
+}
+
 // =============================================================================
-// Images API (request shape mirrors the former tool / codex)
+// Images API
 // =============================================================================
 
 async function callImagesApi(cfg, endpoint, body, signal) {
+	// `body` is a plain object for JSON endpoints, or a FormData (multipart)
+	// for /images/edits — fetch sets the multipart boundary itself, so the
+	// content-type header must be left out there.
+	const isForm = typeof FormData !== "undefined" && body instanceof FormData;
 	let response;
 	try {
 		response = await fetch(`${cfg.baseUrl}${endpoint}`, {
 			method: "POST",
-			headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}` },
-			body: JSON.stringify(body),
+			headers: isForm
+				? { authorization: `Bearer ${cfg.apiKey}` }
+				: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}` },
+			body: isForm ? body : JSON.stringify(body),
 			signal,
 		});
 	} catch (err) {
@@ -504,17 +529,23 @@ async function main() {
 	if (images.length > 0) {
 		const cwd = process.cwd();
 		endpoint = "/images/edits";
-		body = { ...base, images: images.map((p) => ({ image_url: readImageDataUrl(p, cwd) })) };
+		body = editsForm(
+			base,
+			images.map((p) => readImageFile(p, cwd)),
+		);
 	} else if (lastImages != null) {
 		const sessionFile = process.env.PI_SESSION_FILE;
 		if (!sessionFile) {
 			fail("--last-images requires PI_SESSION_FILE; run inside pi's shell tool, or pass explicit paths with --image");
 		}
 		endpoint = "/images/edits";
-		body = {
-			...base,
-			images: collectRecentImages(lastImages, sessionFile).map((img) => ({ image_url: `data:${img.mimeType};base64,${img.data}` })),
-		};
+		body = editsForm(
+			base,
+			collectRecentImages(lastImages, sessionFile).map((img) => ({
+				bytes: Buffer.from(img.data, "base64"),
+				mimeType: img.mimeType,
+			})),
+		);
 	}
 
 	const signal = AbortSignal.timeout(TIMEOUT_SEC * 1000);
