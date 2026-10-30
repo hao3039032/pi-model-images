@@ -8,7 +8,7 @@ Models that generate images natively (responses `image_generation_call`, OpenRou
 
 1. **imagegen CLI + skill (v0.2, replaces the former registered `imagegen` tool)** — a zero-dependency Node CLI (`skills/imagegen/scripts/imagegen.mjs`) that calls the OpenAI Images API directly (`POST {base}/images/generations` for new images, `POST {base}/images/edits` for edits). It is distributed as a pi skill: the model sees only a one-line skill description in its system prompt (loaded on demand), and invokes the CLI through the ordinary bash tool — keeping the tool list lean. Works with **any** model and provider — `openai-responses`, `openai-completions`, even `anthropic-messages` — because it never depends on the chat protocol. Supports:
    - text-to-image generation (`--prompt`)
-   - transparent backgrounds (`--transparent`)
+   - background control (`--background transparent|opaque|auto`, default `auto` matching codex; `--transparent` shorthand)
    - editing local images (`--image`, repeatable, up to 16 — the OpenAI API limit for gpt-image models)
    - editing recent conversation images with no local path (`--last-images N`, up to 16 — reads the current session via `PI_SESSION_FILE`)
    - requesting several images from one generation (`--n`, 1-10; every returned image is saved and marked)
@@ -54,9 +54,10 @@ The CLI talks to the OpenAI Images API on its own, configured in its own dedicat
 {
 	"baseUrl": "https://api.openai.com/v1",
 	"apiKey": "sk-...",
-	"model": "gpt-image-2",
+	"model": "gpt-image-2.5-sunburst",
 	"size": "auto",
-	"quality": "auto"
+	"quality": "auto",
+	"background": "auto"
 }
 ```
 
@@ -64,13 +65,14 @@ The CLI talks to the OpenAI Images API on its own, configured in its own dedicat
 |---|---|---|
 | `apiKey` | `OPENAI_API_KEY` env | API key (required). Supports pi's `$ENV_VAR` / `${ENV_VAR}` reference convention |
 | `baseUrl` | `https://api.openai.com/v1` | Base URL of the Images API (any OpenAI-compatible gateway works) |
-| `model` | `gpt-image-2` | Image model (matches codex's current default; use `gpt-image-1` for older deployments) |
+| `model` | `gpt-image-2.5-sunburst` | Image model (any Images API model id; use `gpt-image-1` for older deployments) |
 | `size` | `auto` | `1024x1024` / `1536x1024` / `1024x1536` / `auto` |
 | `quality` | `auto` | `low` / `medium` / `high` / `auto` |
+| `background` | `auto` | `transparent` / `opaque` / `auto` (codex sends `auto`; `gpt-image-2` accepts only `auto`/`opaque`, while `gpt-image-1.x` and `gpt-image-2.5` accept all three) |
 
-Every field can be overridden per-invocation with environment variables: `PI_IMAGEGEN_API_KEY`, `PI_IMAGEGEN_BASE_URL`, `PI_IMAGEGEN_MODEL`, `PI_IMAGEGEN_SIZE`, `PI_IMAGEGEN_QUALITY` (env > config file > default; `apiKey` additionally falls back to `OPENAI_API_KEY`). The file is re-read on every CLI call, so edits apply immediately.
+Every field can be overridden per-invocation with environment variables: `PI_IMAGEGEN_API_KEY`, `PI_IMAGEGEN_BASE_URL`, `PI_IMAGEGEN_MODEL`, `PI_IMAGEGEN_SIZE`, `PI_IMAGEGEN_QUALITY`, `PI_IMAGEGEN_BACKGROUND` (CLI flag > env > config file > default; `apiKey` additionally falls back to `OPENAI_API_KEY`). The file is re-read on every CLI call, so edits apply immediately.
 
-Request shape follows codex: `{"prompt", "background": "opaque"|"transparent", "model", "quality", "size"}` as JSON against `/images/generations`. Edits (`/images/edits`) use the standard OpenAI multipart/form-data contract — scalar fields plus one `image[]` file part per reference image — instead of a JSON body, which gateways commonly re-encode (e.g. as `application/x-www-form-urlencoded`) on the upstream hop, where it gets rejected. Requires Node ≥ 18 (bundled with the skill; pi's runtime already satisfies this).
+Request shape follows codex: `{"prompt", "background": "transparent"|"opaque"|"auto", "model", "quality", "size"}` as JSON against `/images/generations`. Edits (`/images/edits`) use the standard OpenAI multipart/form-data contract — scalar fields plus one `image[]` file part per reference image — instead of a JSON body, which gateways commonly re-encode (e.g. as `application/x-www-form-urlencoded`) on the upstream hop, where it gets rejected. Requires Node ≥ 18 (bundled with the skill; pi's runtime already satisfies this).
 
 ## The skill
 
@@ -78,7 +80,7 @@ Request shape follows codex: `{"prompt", "background": "opaque"|"transparent", "
 
 ## Migration from v0.1
 
-The registered `imagegen` tool is **gone** (that is the point — fewer tools in the model's environment). Sessions recorded before v0.2 that replay an `imagegen` tool call will report an unknown-tool error; simply re-issue the request as a natural-language image task. No configuration migration is needed — the config file and environment variables are unchanged.
+The registered `imagegen` tool is **gone** (that is the point — fewer tools in the model's environment). Sessions recorded before v0.2 that replay an `imagegen` tool call will report an unknown-tool error; simply re-issue the request as a natural-language image task. Existing config files keep working (no key was renamed or removed), but two defaults changed: `model` is `gpt-image-2.5-sunburst` and `background` is `auto` (v0.1 sent `opaque`). To keep the old opaque output, set `"background": "opaque"` in the config file or `PI_IMAGEGEN_BACKGROUND=opaque`.
 
 ## Stream wrappers
 

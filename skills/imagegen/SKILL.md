@@ -15,28 +15,35 @@ Use this CLI whenever the user asks to create or edit an image (drawing, diagram
 
 One invocation submits exactly one generation request (one prompt + one option set). Never batch multiple prompts into one call — run the CLI once per prompt, or orchestrate repeated calls (e.g. codemode). A single generation may take several reference images and may return several output images.
 
-Resolve the script path against this skill's directory (the parent of this `SKILL.md`), then run it with node:
+Resolve the script path against this skill's directory (the parent of this `SKILL.md`). Before running the examples below, change into that directory and initialize `SKILL_DIR` in the same shell:
 
 ```bash
-node <skill-dir>/scripts/imagegen.mjs --prompt "A watercolor painting of a mountain lake at dawn"
+export SKILL_DIR="$(pwd -P)"
+node "$SKILL_DIR/scripts/imagegen.mjs" --help
 ```
 
-Generate a brand-new image (omit `--image`/`--last-images` entirely):
+For agent invocations in separate shells, set `SKILL_DIR` to the resolved absolute skill directory in each invocation, or substitute the quoted absolute script path directly. Do not run the setup from an unrelated working directory.
 
 ```bash
-node <skill-dir>/scripts/imagegen.mjs --prompt "..." [--transparent]
+node "${SKILL_DIR:?Set SKILL_DIR to the skill directory first}/scripts/imagegen.mjs" --prompt "A watercolor painting of a mountain lake at dawn"
 ```
 
-Edit local images — pass up to 16 paths (the OpenAI API limit for gpt-image models) when every target image has a local path:
+Generate a brand-new image (omit `--image`/`--last-images` entirely). This example explicitly requests transparency; omit `--background transparent` to use the configured background (default `auto`), or replace `transparent` with `opaque` or `auto`:
 
 ```bash
-node <skill-dir>/scripts/imagegen.mjs --prompt "make the sky sunset-colored" --image /abs/path/a.png --image /abs/path/b.png
+node "${SKILL_DIR:?Set SKILL_DIR to the skill directory first}/scripts/imagegen.mjs" --prompt "A red apple sticker with a transparent background" --background transparent
+```
+
+Edit local images — pass up to 16 paths (the OpenAI API limit for gpt-image models) when every target image has a local path. Replace the two example file paths below with existing image paths:
+
+```bash
+node "${SKILL_DIR:?Set SKILL_DIR to the skill directory first}/scripts/imagegen.mjs" --prompt "make the sky sunset-colored" --image "/abs/path/a.png" --image "/abs/path/b.png"
 ```
 
 Edit recent conversation images — only when a target image has no local file path. `N` is the smallest number of recent images (1-16) covering every target; relative paths resolve against the current working directory:
 
 ```bash
-node <skill-dir>/scripts/imagegen.mjs --prompt "remove the background clutter" --last-images 1
+node "${SKILL_DIR:?Set SKILL_DIR to the skill directory first}/scripts/imagegen.mjs" --prompt "remove the background clutter" --last-images 1
 ```
 
 ## Flags
@@ -44,7 +51,8 @@ node <skill-dir>/scripts/imagegen.mjs --prompt "remove the background clutter" -
 | Flag | Description |
 |---|---|
 | `--prompt <text>` | Required. Description of the desired image, or the edit instructions. |
-| `--transparent` | Transparent background (default opaque). Use only for transparency/cutout/background-removal requests; for edits preserve existing transparency unless asked. |
+| `--background <mode>` | `transparent` / `opaque` / `auto` (default `auto`, matching codex). Use `transparent` only for transparency/cutout/background-removal requests; for edits preserve existing transparency unless asked. |
+| `--transparent` | Shortcut for `--background transparent`. |
 | `--image <path>` | Repeatable, up to 16 (OpenAI gpt-image API limit; each png/webp/jpg must be under 50MB — the CLI rejects larger files). |
 | `--last-images <N>` | 1-16. Use the last N images from the current pi session (works inside pi's shell via `PI_SESSION_FILE`). |
 | `--n <count>` | Request multiple images from this one generation (1-10, default 1). Every returned image is saved and marked. |
@@ -56,7 +64,7 @@ Never provide both `--image` and `--last-images`. If neither mechanism can inclu
 
 ## Configuration
 
-Read from `~/.pi/agent/pi-model-images.json` (`baseUrl` / `apiKey` / `model` / `size` / `quality`), overridable via `PI_IMAGEGEN_*` env vars (`apiKey` falls back to `OPENAI_API_KEY`). If the CLI reports a missing API key, tell the user to set `apiKey` in that file.
+Read from `~/.pi/agent/pi-model-images.json` (`baseUrl` / `apiKey` / `model` / `size` / `quality` / `background`), overridable via `PI_IMAGEGEN_*` env vars (`apiKey` falls back to `OPENAI_API_KEY`). If the CLI reports a missing API key, tell the user to set `apiKey` in that file.
 
 ## Output & behavior
 

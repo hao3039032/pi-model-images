@@ -7,7 +7,7 @@
  *
  * Configuration is identical to the former tool:
  *   ~/.pi/agent/pi-model-images.json  (agent dir honors PI_CODING_AGENT_DIR)
- *     { "baseUrl", "apiKey", "model", "size", "quality" }
+ *     { "baseUrl", "apiKey", "model", "size", "quality", "background" }
  * with PI_IMAGEGEN_* env overrides (env > file > default; apiKey falls back
  * to OPENAI_API_KEY; "$VAR"/"${VAR}" env references are resolved).
  *
@@ -34,7 +34,11 @@ const MARKER = "PI_IMAGEGEN_FILE";
 const IMG_DIR = path.join(os.homedir(), ".pi", "images");
 const CONFIG_FILENAME = "pi-model-images.json";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
-const DEFAULT_MODEL = "gpt-image-2";
+const DEFAULT_MODEL = "gpt-image-2.5-sunburst";
+// Codex sends background=auto by default. All three modes are valid for
+// gpt-image-1.x and 2.5; gpt-image-2 accepts only auto/opaque (no transparent).
+const BACKGROUNDS = new Set(["transparent", "opaque", "auto"]);
+const DEFAULT_BACKGROUND = "auto";
 const MAX_EDIT_IMAGES = 16; // OpenAI GPT image models accept up to 16 reference images per edit
 const MAX_OUTPUT_IMAGES = 10;
 const DEFAULT_TIMEOUT_SEC = 300;
@@ -107,11 +111,25 @@ function loadConfig(overrides) {
 		const value = process.env[envVar] ?? (typeof fromSettings === "string" && fromSettings.trim() ? fromSettings : undefined);
 		return (value ?? fallback).trim();
 	};
+	// `PI_IMAGEGEN_BACKGROUND=` (set but empty) must fall through to the config
+	// file / DEFAULT_BACKGROUND instead of being validated as "", so background
+	// does not use the shared str() helper (which treats an empty env var as a
+	// value for the other fields).
+	const fromSettings = settings.background;
+	const background = (
+		overrides.background ||
+		process.env.PI_IMAGEGEN_BACKGROUND?.trim() ||
+		(typeof fromSettings === "string" && fromSettings.trim() ? fromSettings.trim() : DEFAULT_BACKGROUND)
+	).toLowerCase();
+	if (!BACKGROUNDS.has(background)) {
+		fail(`background must be one of transparent|opaque|auto (got \`${background}\`)`);
+	}
 	return {
 		baseUrl: (overrides.baseUrl || str("PI_IMAGEGEN_BASE_URL", "baseUrl", DEFAULT_BASE_URL)).replace(/\/+$/, ""),
 		model: overrides.model || str("PI_IMAGEGEN_MODEL", "model", DEFAULT_MODEL),
 		size: overrides.size || str("PI_IMAGEGEN_SIZE", "size", "auto"),
 		quality: overrides.quality || str("PI_IMAGEGEN_QUALITY", "quality", "auto"),
+		background,
 		apiKey: (
 			process.env.PI_IMAGEGEN_API_KEY ||
 			(typeof settings.apiKey === "string" ? resolveEnvRef(settings.apiKey.trim()) : "") ||
@@ -390,7 +408,10 @@ Usage:
 Options:
   --prompt <text>        Text description of the desired image, or the edit
                          instructions to apply. Required.
-  --transparent          Request a transparent background (default opaque).
+  --background <mode>    Background mode: transparent|opaque|auto (default
+                         auto, matching codex; also settable via config file
+                         or PI_IMAGEGEN_BACKGROUND).
+  --transparent          Shortcut for --background transparent.
   --image <path>         Local image path to edit; repeat up to 16 times
                          (the API limit for gpt-image models).
   --last-images <N>      Use the last N images from the current pi session
@@ -410,7 +431,8 @@ Options:
   -h, --help             Show this help.
 
 Config: ~/.pi/agent/${CONFIG_FILENAME} (baseUrl / apiKey / model / size /
-quality) with PI_IMAGEGEN_* env overrides; apiKey falls back to OPENAI_API_KEY.
+quality / background) with PI_IMAGEGEN_* env overrides; apiKey falls back to
+OPENAI_API_KEY.
 
 Output: a summary line, then one "PI_IMAGEGEN_FILE <path>" marker line per
 returned image (the pi-model-images extension injects those images back into
@@ -439,8 +461,26 @@ function parseArgs(argv) {
 				opts.prompt = next(arg);
 				break;
 			case "--transparent":
-				opts.transparent = true;
+				// Repeating the same spelling is last-wins (like --model/--size);
+				// mixing the two spellings is ambiguous and rejected.
+				if (opts.backgroundFrom && opts.backgroundFrom !== "--transparent") {
+					fail("provide only one of --transparent or --background");
+				}
+				opts.backgroundFrom = "--transparent";
+				opts.overrides.background = "transparent";
 				break;
+			case "--background": {
+				const value = next(arg).trim().toLowerCase();
+				if (!BACKGROUNDS.has(value)) {
+					fail(`background must be one of transparent|opaque|auto (got \`${value}\`)`);
+				}
+				if (opts.backgroundFrom && opts.backgroundFrom !== "--background") {
+					fail("provide only one of --transparent or --background");
+				}
+				opts.backgroundFrom = "--background";
+				opts.overrides.background = value;
+				break;
+			}
 			case "--image":
 				opts.images.push(next(arg));
 				break;
@@ -515,7 +555,7 @@ async function main() {
 
 	const base = {
 		prompt: opts.prompt,
-		background: opts.transparent ? "transparent" : "opaque",
+		background: cfg.background,
 		model: cfg.model,
 		quality: cfg.quality,
 		size: cfg.size,
