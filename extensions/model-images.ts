@@ -65,6 +65,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { appendGeneratedImages } from "./image-output.mjs";
+import { withProviderCompat } from "./provider-compat.mjs";
 
 const IMG_DIR = path.join(os.homedir(), ".pi", "images");
 const IMG_MARKDOWN = /!\[image\]\(file:\/\/[^)]*\.pi\/images\/[^)]+\)/g;
@@ -436,6 +437,11 @@ interface ProviderCfg {
 	baseUrl: string;
 	apiKey: string;
 	api: string;
+	// Provider-level compat must survive the same-name takeover: it carries
+	// settings the models themselves do not repeat, notably
+	// `sendSessionAffinityHeaders` / `sessionAffinityFormat` (routers use that
+	// header to keep a session on the upstream holding its prompt cache).
+	compat?: Record<string, any>;
 	models: Array<Record<string, any>>;
 }
 
@@ -447,7 +453,13 @@ function readWrapCandidates(): Map<string, ProviderCfg> {
 		const c = cfg as Record<string, any>;
 		if (!c?.baseUrl || !c?.apiKey || !Array.isArray(c?.models)) continue;
 		if (c.api !== "openai-responses" && c.api !== "openai-completions") continue;
-		out.set(name, { baseUrl: c.baseUrl, apiKey: c.apiKey, api: c.api, models: c.models });
+		out.set(name, {
+			baseUrl: c.baseUrl,
+			apiKey: c.apiKey,
+			api: c.api,
+			...(c.compat ? { compat: c.compat } : {}),
+			models: c.models,
+		});
 	}
 	return out;
 }
@@ -528,12 +540,12 @@ export default function modelImagesExtension(pi: ExtensionAPI) {
 	}
 
 	for (const [name, cfg] of candidates) {
-		const models = cfg.models.map((m) => ({
+		const models = withProviderCompat(cfg.models.map((m) => ({
 			...m,
 			// registerProvider passes models through without defaulting cost;
 			// downstream cost merge reads model.cost.tiers and crashes without it.
 			cost: m.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		})) as ProviderModelConfig[];
+		})), cfg.compat) as ProviderModelConfig[];
 
 		const isResponses = cfg.api === "openai-responses";
 		const imageFetch = isResponses ? makeResponsesImageFetch(globalThis.fetch) : makeCompletionsImageFetch(globalThis.fetch);
@@ -569,6 +581,7 @@ export default function modelImagesExtension(pi: ExtensionAPI) {
 			baseUrl: cfg.baseUrl,
 			apiKey: cfg.apiKey,
 			api: cfg.api,
+			...(cfg.compat ? { compat: cfg.compat } : {}),
 			models,
 			streamSimple,
 		});
